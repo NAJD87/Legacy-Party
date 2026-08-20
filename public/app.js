@@ -12,6 +12,7 @@ class LegacyParty {
     this.roundEndTimer = null;
     this.submittedAnswer = false;
     this.votedThief = false;
+    this.currentRound = 0;
 
     this.init();
   }
@@ -64,12 +65,14 @@ class LegacyParty {
       this.roomCode = message.roomCode;
       this.isHost = message.hostId === this.playerId;
       this.currentRoom = message;
+      this.currentRound = message.currentRound || 0;
       this.showRoomPage();
     }
 
     if (type === 'playerListUpdated') {
       this.currentRoom = message;
       this.isHost = message.hostId === this.playerId;
+      this.currentRound = message.currentRound || 0;
       this.updatePlayerList();
     }
 
@@ -80,12 +83,14 @@ class LegacyParty {
 
     if (type === 'gameStarted') {
       this.currentGameType = message.gameType;
+      this.currentRound = message.currentRound || 0;
       this.roundData = message;
       this.showGamePage(message);
     }
 
     if (type === 'thiefGameStarted') {
       this.currentGameType = 'thief';
+      this.currentRound = message.currentRound || 0;
       this.roundData = message;
       this.showThiefDiscussionPage(message);
     }
@@ -121,6 +126,13 @@ class LegacyParty {
 
     if (type === 'thiefRoundResults') {
       this.showThiefRoundResults(message);
+    }
+
+    if (type === 'returnToLobby') {
+      this.currentRoom = message;
+      this.isHost = message.hostId === this.playerId;
+      this.currentRound = message.currentRound || 0;
+      this.showRoomPage();
     }
 
     if (type === 'error') {
@@ -206,7 +218,7 @@ class LegacyParty {
             <div class="room-code-label">كود الغرفة</div>
             <div class="room-code">${this.roomCode}</div>
           </div>
-          <div></div>
+          <div class="room-round" style="text-align: center; color: var(--text-muted); font-size: 12px;">الجولة ${this.currentRound}</div>
         </div>
 
         <div class="room-content">
@@ -242,6 +254,7 @@ class LegacyParty {
     playerList.innerHTML = this.currentRoom.players.map(player => `
       <div class="player-item">
         <span class="player-name">${player.name}</span>
+        <span class="player-score" style="font-size: 12px; color: var(--accent-teal);">${player.score || 0}</span>
         <span class="player-badge">${player.isHost ? '👑' : ''}</span>
       </div>
     `).join('');
@@ -303,6 +316,8 @@ class LegacyParty {
         </div>
 
         <div class="game-content">
+          <div class="round-indicator">الجولة ${message.currentRound || this.currentRound}</div>
+          
           <div class="general-word-container">
             <div class="general-word-label">الكلمة العامة</div>
             <div class="general-word">${message.generalWord}</div>
@@ -377,6 +392,8 @@ class LegacyParty {
         </div>
 
         <div class="game-content">
+          <div class="round-indicator">الجولة ${message.currentRound || this.currentRound}</div>
+          
           <div class="discussion-container">
             <div class="discussion-label">مرحلة النقاش</div>
             <div class="discussion-message">تحدثوا واكتشفوا من السارق! 💬</div>
@@ -486,7 +503,7 @@ class LegacyParty {
     document.getElementById('app').innerHTML = `
       <div class="results-page">
         <div class="results-header">
-          <h2>النتائج</h2>
+          <h2>النتائج - الجولة ${message.currentRound || this.currentRound}</h2>
         </div>
 
         <div class="results-content">
@@ -506,7 +523,10 @@ class LegacyParty {
           </div>
 
           ${this.isHost ? `
-            <button class="btn-primary" onclick="game.startNewRound()">جولة جديدة 🔄</button>
+            <div class="button-group-results">
+              <button class="btn-primary" onclick="game.startNewRound()">جولة جديدة 🔄</button>
+              <button class="btn-secondary" onclick="game.returnToLobby()">العودة للغرفة</button>
+            </div>
           ` : '<p style="color: var(--text-muted); text-align: center; margin-top: 20px;">في انتظار اختيار المضيف للجولة القادمة...</p>'}
         </div>
       </div>
@@ -521,7 +541,8 @@ class LegacyParty {
       mystery,
       votes,
       scores,
-      correctVoters
+      correctVoters,
+      currentRound
     } = message;
 
     const resultStatus = thiefCaught 
@@ -550,7 +571,7 @@ class LegacyParty {
     document.getElementById('app').innerHTML = `
       <div class="results-page">
         <div class="results-header">
-          <h2>النتائج - جولة من سرقها؟</h2>
+          <h2>النتائج - جولة من سرقها؟ (${currentRound || this.currentRound})</h2>
         </div>
 
         <div class="results-content">
@@ -575,7 +596,10 @@ class LegacyParty {
           </div>
 
           ${this.isHost ? `
-            <button class="btn-primary" onclick="game.startNewThiefRound()">جولة جديدة 🔄</button>
+            <div class="button-group-results">
+              <button class="btn-primary" onclick="game.startNewRound()">جولة جديدة 🔄</button>
+              <button class="btn-secondary" onclick="game.returnToLobby()">العودة للغرفة</button>
+            </div>
           ` : '<p style="color: var(--text-muted); text-align: center; margin-top: 20px;">في انتظار اختيار المضيف للجولة القادمة...</p>'}
         </div>
       </div>
@@ -587,15 +611,20 @@ class LegacyParty {
     this.submittedAnswer = false;
     this.votedThief = false;
     this.selectedGame = null;
-    this.showRoomPage();
-  }
-
-  startNewThiefRound() {
-    if (!this.isHost) return;
-    this.votedThief = false;
 
     this.ws.send(JSON.stringify({
-      action: 'startNewThiefRound'
+      action: 'startNewRound'
+    }));
+  }
+
+  returnToLobby() {
+    if (!this.isHost) return;
+    this.submittedAnswer = false;
+    this.votedThief = false;
+    this.selectedGame = null;
+
+    this.ws.send(JSON.stringify({
+      action: 'returnToLobby'
     }));
   }
 
