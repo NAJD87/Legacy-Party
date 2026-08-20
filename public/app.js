@@ -11,6 +11,7 @@ class LegacyParty {
     this.roundData = null;
     this.roundEndTimer = null;
     this.submittedAnswer = false;
+    this.votedThief = false;
 
     this.init();
   }
@@ -83,14 +84,43 @@ class LegacyParty {
       this.showGamePage(message);
     }
 
+    if (type === 'thiefGameStarted') {
+      this.currentGameType = 'thief';
+      this.roundData = message;
+      this.showThiefDiscussionPage(message);
+    }
+
+    if (type === 'thiefPrivateMessage') {
+      this.showError(message.message);
+    }
+
+    if (type === 'playerPrivateClue') {
+      this.showError('🔍 ' + message.clue);
+    }
+
+    if (type === 'thiefVotingStarted') {
+      this.roundData = message;
+      this.showThiefVotingPage(message);
+    }
+
     if (type === 'answerSubmitted') {
       this.submittedAnswer = true;
       this.showError(message.message);
       this.disableAnswerSubmission();
     }
 
+    if (type === 'voteSubmitted') {
+      this.votedThief = true;
+      this.showError(message.message);
+      this.disableVoteSubmission();
+    }
+
     if (type === 'roundResults') {
       this.showRoundResults(message);
+    }
+
+    if (type === 'thiefRoundResults') {
+      this.showThiefRoundResults(message);
     }
 
     if (type === 'error') {
@@ -335,6 +365,107 @@ class LegacyParty {
     if (waitingText) waitingText.style.display = 'block';
   }
 
+  showThiefDiscussionPage(message) {
+    const discussionDuration = message.discussionDuration / 1000;
+    let timeRemaining = discussionDuration;
+
+    document.getElementById('app').innerHTML = `
+      <div class="game-page">
+        <div class="game-header">
+          <div class="game-title">🕵️ من سرقها؟</div>
+          <div class="timer" id="timer">${Math.ceil(timeRemaining)}s</div>
+        </div>
+
+        <div class="game-content">
+          <div class="discussion-container">
+            <div class="discussion-label">مرحلة النقاش</div>
+            <div class="discussion-message">تحدثوا واكتشفوا من السارق! 💬</div>
+          </div>
+
+          <div class="waiting-text" id="waitingText">جاري إحصاء الوقت...</div>
+        </div>
+      </div>
+    `;
+
+    // Timer countdown
+    const timerInterval = setInterval(() => {
+      timeRemaining--;
+      const timerEl = document.getElementById('timer');
+      if (timerEl) {
+        timerEl.textContent = `${Math.ceil(timeRemaining)}s`;
+      }
+      
+      if (timeRemaining <= 0) {
+        clearInterval(timerInterval);
+      }
+    }, 1000);
+  }
+
+  showThiefVotingPage(message) {
+    const votingDuration = message.votingDuration / 1000;
+    let timeRemaining = votingDuration;
+    const players = message.players || [];
+
+    const votingOptionsHtml = players.map(player => `
+      <button class="vote-option" onclick="game.submitThiefVote('${player.id}')">
+        ${player.name}
+      </button>
+    `).join('');
+
+    document.getElementById('app').innerHTML = `
+      <div class="game-page">
+        <div class="game-header">
+          <div class="game-title">🗳️ من السارق؟</div>
+          <div class="timer" id="timer">${Math.ceil(timeRemaining)}s</div>
+        </div>
+
+        <div class="game-content">
+          <div class="voting-container">
+            <div class="voting-label">صوت لمن تعتقد أنه السارق</div>
+            <div class="voting-options" id="votingOptions">
+              ${votingOptionsHtml}
+            </div>
+          </div>
+
+          <div class="waiting-text" id="waitingText" style="display: none;">في انتظار الآخرين...</div>
+        </div>
+      </div>
+    `;
+
+    // Timer countdown
+    const timerInterval = setInterval(() => {
+      timeRemaining--;
+      const timerEl = document.getElementById('timer');
+      if (timerEl) {
+        timerEl.textContent = `${Math.ceil(timeRemaining)}s`;
+      }
+      
+      if (timeRemaining <= 0) {
+        clearInterval(timerInterval);
+        this.disableVoteSubmission();
+      }
+    }, 1000);
+  }
+
+  submitThiefVote(accusedPlayerId) {
+    if (this.votedThief) return;
+
+    this.ws.send(JSON.stringify({
+      action: 'submitThiefVote',
+      accusedPlayerId: accusedPlayerId
+    }));
+  }
+
+  disableVoteSubmission() {
+    const voteOptions = document.querySelectorAll('.vote-option');
+    const waitingText = document.getElementById('waitingText');
+
+    voteOptions.forEach(option => {
+      option.disabled = true;
+    });
+    if (waitingText) waitingText.style.display = 'block';
+  }
+
   showRoundResults(message) {
     const resultsHtml = message.playerResults.map(result => `
       <div class="result-item ${result.hitBomb ? 'bomb' : 'survived'}">
@@ -382,11 +513,90 @@ class LegacyParty {
     `;
   }
 
+  showThiefRoundResults(message) {
+    const {
+      accusedPlayerName,
+      thiefName,
+      thiefCaught,
+      mystery,
+      votes,
+      scores,
+      correctVoters
+    } = message;
+
+    const resultStatus = thiefCaught 
+      ? `✅ تم اكتشاف السارق! "${thiefName}" كان السارق`
+      : `❌ نجا السارق! "${thiefName}" كان السارق`;
+
+    const votesHtml = votes.map(vote => {
+      const isCorrect = correctVoters.includes(vote.voterId);
+      return `
+        <div class="vote-result ${isCorrect ? 'correct' : 'incorrect'}">
+          <span class="voter-name">${vote.voterName}</span>
+          <span class="arrow">→</span>
+          <span class="accused-name">${vote.accusedName}</span>
+          <span class="status">${isCorrect ? '✅' : '❌'}</span>
+        </div>
+      `;
+    }).join('');
+
+    const scoresHtml = scores.map(score => `
+      <div class="score-item">
+        <span class="score-name">${score.playerName}</span>
+        <span class="score-value">${score.totalScore}</span>
+      </div>
+    `).join('');
+
+    document.getElementById('app').innerHTML = `
+      <div class="results-page">
+        <div class="results-header">
+          <h2>النتائج - جولة من سرقها؟</h2>
+        </div>
+
+        <div class="results-content">
+          <div class="reveal-section">
+            <div class="reveal-label">الحدث:</div>
+            <div class="reveal-event">${mystery.event}</div>
+          </div>
+
+          <div class="thief-result">
+            <div class="thief-status">${resultStatus}</div>
+            <div class="accused-info">اتهم اللاعبون: <strong>${accusedPlayerName}</strong></div>
+          </div>
+
+          <div class="results-list">
+            <div class="section-title">الأصوات</div>
+            ${votesHtml}
+          </div>
+
+          <div class="scores-section">
+            <div class="section-title">الرتب</div>
+            ${scoresHtml}
+          </div>
+
+          ${this.isHost ? `
+            <button class="btn-primary" onclick="game.startNewThiefRound()">جولة جديدة 🔄</button>
+          ` : '<p style="color: var(--text-muted); text-align: center; margin-top: 20px;">في انتظار اختيار المضيف للجولة القادمة...</p>'}
+        </div>
+      </div>
+    `;
+  }
+
   startNewRound() {
     if (!this.isHost) return;
     this.submittedAnswer = false;
+    this.votedThief = false;
     this.selectedGame = null;
     this.showRoomPage();
+  }
+
+  startNewThiefRound() {
+    if (!this.isHost) return;
+    this.votedThief = false;
+
+    this.ws.send(JSON.stringify({
+      action: 'startNewThiefRound'
+    }));
   }
 
   showError(message) {
