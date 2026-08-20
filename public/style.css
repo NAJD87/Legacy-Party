@@ -292,6 +292,335 @@ button.btn-secondary:hover {
   cursor: not-allowed;
 }
 
+/* GAME PAGE */
+.game-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--secondary-dark) 100%);
+}
+
+.game-header {
+  padding: 20px;
+  border-bottom: 1px solid rgba(22, 160, 133, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.game-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-light);
+}
+
+.timer {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent-teal);
+  font-family: 'Courier New', monospace;
+}
+
+.game-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow-y: auto;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+}
+
+.general-word-container {
+  text-align: center;
+}
+
+.general-word-label {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.general-word {
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--accent-teal);
+  padding: 20px;
+  background: rgba(22, 160, 133, 0.1);
+  border-radius: 12px;
+  border: 2px solid var(--accent-teal);
+}
+
+/* THIEF GAME STYLES */
+.discussion-container {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.discussion-label {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent-teal);
+  margin-bottom: 16px;
+  text-transform: uppercase;
+}
+
+.discussion-message {
+  font-size: 24px;
+  color: var(--text-light);
+}
+
+.voting-container {
+  width: 100%;
+  max-width: 400px;
+}
+
+.voting-label {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent-teal);
+  margin-bottom: 20px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.voting-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vote-option {
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid rgba(22, 160, 133, 0.3);
+  border-radius: 8px;
+  color: var(--text-light);
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.vote-option:hover {
+  background: rgba(22, 160, 133, 0.2);
+  border-color: var(--accent-teal);
+  transform: translateY(-2px);
+}
+
+.vote-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.submit-section {
+  width: 100%;
+  max-width: 400px;
+}
+
+.waiting-text {
+  font-size: 16px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 20px;
+  font-style: italic;
+}
+
+/* RESULTS PAGE */
+.results-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--secondary-dark) 100%);
+}
+
+.results-header {
+  padding: 20px;
+  border-bottom: 1px solid rgba(22, 160, 133, 0.2);
+  text-align: center;
+}
+
+.results-header h2 {
+  font-size: 28px;
+  color: var(--accent-teal);
+}
+
+.results-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.reveal-section {
+  text-align: center;
+  padding: 20px;
+  background: rgba(22, 160, 133, 0.1);
+  border-radius: 8px;
+  border: 2px solid var(--accent-teal);
+}
+
+.reveal-label {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.reveal-word {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--accent-teal);
+}
+
+.reveal-event {
+  font-size: 18px;
+  color: var(--text-light);
+  line-height: 1.6;
+}
+
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.result-item {
+  padding: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.3s ease;
+}
+
+.result-item.bomb {
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.result-item.survived {
+  background: rgba(39, 174, 96, 0.1);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+}
+
+.result-player-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.result-answer {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.result-status {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+}
+
+.result-points {
+  font-weight: 700;
+  color: var(--accent-teal);
+  min-width: 50px;
+  text-align: right;
+}
+
+.scores-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.score-item {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(22, 160, 133, 0.2);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.score-name {
+  font-weight: 500;
+}
+
+.score-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-teal);
+}
+
+/* THIEF RESULTS */
+.thief-result {
+  text-align: center;
+  padding: 20px;
+  background: rgba(22, 160, 133, 0.1);
+  border-radius: 8px;
+  border: 2px solid var(--accent-teal);
+}
+
+.thief-status {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-light);
+  margin-bottom: 12px;
+}
+
+.accused-info {
+  font-size: 16px;
+  color: var(--text-muted);
+}
+
+.vote-result {
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: all 0.3s ease;
+}
+
+.vote-result.correct {
+  background: rgba(39, 174, 96, 0.1);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+}
+
+.vote-result.incorrect {
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.voter-name {
+  font-weight: 500;
+  flex: 1;
+  text-align: left;
+}
+
+.arrow {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.accused-name {
+  font-weight: 500;
+  flex: 1;
+  text-align: right;
+}
+
+.status {
+  font-size: 18px;
+  min-width: 30px;
+  text-align: center;
+}
+
 /* ANIMATIONS */
 @keyframes fadeInDown {
   from {
@@ -332,5 +661,36 @@ button.btn-secondary:hover {
   button {
     padding: 12px 20px;
     font-size: 14px;
+  }
+
+  .game-title {
+    font-size: 24px;
+  }
+
+  .timer {
+    font-size: 28px;
+  }
+
+  .general-word {
+    font-size: 36px;
+  }
+
+  .reveal-word {
+    font-size: 28px;
+  }
+
+  .result-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .result-answer,
+  .result-status {
+    text-align: left;
+  }
+
+  .result-points {
+    align-self: flex-start;
   }
 }
