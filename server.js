@@ -2,6 +2,7 @@ const express = require('express');
 const WebSocket = require('ws');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -12,8 +13,11 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
+// Load bomb topics
+const bombTopics = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/bomb-topics.json'), 'utf8')).topics;
+
 // Data structures
-const rooms = new Map(); // roomCode -> { hostId, players: Map, gameState, createdAt }
+const rooms = new Map(); // roomCode -> { hostId, players: Map, gameState, selectedGame, createdAt, usedTopics, currentRound }
 const playerConnections = new Map(); // playerId -> { ws, roomCode, playerName }
 
 // Generate unique room code
@@ -43,6 +47,14 @@ function broadcastToRoom(roomCode, message) {
   });
 }
 
+// Send private message to specific player
+function sendToPlayer(playerId, message) {
+  const connection = playerConnections.get(playerId);
+  if (connection && connection.ws && connection.ws.readyState === WebSocket.OPEN) {
+    connection.ws.send(JSON.stringify(message));
+  }
+}
+
 // Get room info
 function getRoomInfo(roomCode) {
   const room = rooms.get(roomCode);
@@ -59,8 +71,21 @@ function getRoomInfo(roomCode) {
     hostId: room.hostId,
     players: playersList,
     playerCount: playersList.length,
-    gameState: room.gameState
+    gameState: room.gameState,
+    selectedGame: room.selectedGame
   };
+}
+
+// Get random topic
+function getRandomTopic(usedTopics = []) {
+  const available = bombTopics.filter(t => !usedTopics.includes(t.id));
+  if (available.length === 0) return bombTopics[Math.floor(Math.random() * bombTopics.length)];
+  return available[Math.floor(Math.random() * available.length)];
+}
+
+// Get random bomb for a topic
+function getRandomBomb(topic) {
+  return topic.bombs[Math.floor(Math.random() * topic.bombs.length)];
 }
 
 // Handle WebSocket connections
@@ -92,13 +117,17 @@ wss.on('connection', (ws) => {
           players: new Map(),
           gameState: 'LOBBY',
           selectedGame: null,
-          createdAt: Date.now()
+          createdAt: Date.now(),
+          usedTopics: [],
+          currentRound: null,
+          roundData: {}
         };
 
         room.players.set(playerId, {
           id: playerId,
           name: playerName,
-          ws: ws
+          ws: ws,
+          score: 0
         });
 
         rooms.set(roomCode, room);
@@ -142,10 +171,12 @@ wss.on('connection', (ws) => {
           return;
         }
 
+        isHost = false;
         room.players.set(playerId, {
           id: playerId,
           name: playerName,
-          ws: ws
+          ws: ws,
+          score: 0
         });
 
         playerConnections.set(playerId, { ws, roomCode, playerName });
@@ -166,18 +197,19 @@ wss.on('connection', (ws) => {
         console.log(`${playerName} joined room ${roomCode}`);
       }
 
-      // SELECT GAME (HOST ONLY)
+      // SELECT GAME (HOST ONLY - SERVER VERIFIED)
       else if (action === 'selectGame') {
-        if (!isHost) {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+
+        // SERVER-SIDE HOST VERIFICATION
+        if (room.hostId !== playerId) {
           ws.send(JSON.stringify({
             type: 'error',
             message: 'Only host can select games'
           }));
           return;
         }
-
-        const room = rooms.get(roomCode);
-        if (!room) return;
 
         const game = data.game;
         room.selectedGame = game;
@@ -190,9 +222,13 @@ wss.on('connection', (ws) => {
         console.log(`Game ${game} selected in room ${roomCode}`);
       }
 
-      // START GAME (HOST ONLY)
+      // START GAME (HOST ONLY - SERVER VERIFIED)
       else if (action === 'startGame') {
-        if (!isHost) {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+
+        // SERVER-SIDE HOST VERIFICATION
+        if (room.hostId !== playerId) {
           ws.send(JSON.stringify({
             type: 'error',
             message: 'Only host can start games'
@@ -200,8 +236,7 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        const room = rooms.get(roomCode);
-        if (!room || !room.selectedGame) {
+        if (!room.selectedGame) {
           ws.send(JSON.stringify({
             type: 'error',
             message: 'No game selected'
@@ -210,14 +245,97 @@ wss.on('connection', (ws) => {
         }
 
         room.gameState = 'GAME';
+        room.currentRound = 1;
 
-        broadcastToRoom(roomCode, {
-          type: 'gameStarted',
-          game: room.selectedGame,
-          gameState: 'GAME'
-        });
+        if (room.selectedGame === 'bomb' || room.selectedGame === 'random') {
+          // Start bomb word game
+          const topic = getRandomTopic(room.usedTopics);
+          room.usedTopics.push(topic.id);
+
+          room.roundData = {
+            gameType: 'bomb',
+            topic: topic,
+            generalWord: topic.general,
+            bombWord: getRandomBomb(topic),
+            submissions: new Map(),
+            submitted: new Set(),
+            roundStartTime: Date.now(),
+            roundDuration: 30000 // 30 seconds
+          };
+
+          // Send general word to all players (NOT the bomb word)
+          broadcastToRoom(roomCode, {
+            type: 'gameStarted',
+            gameType: 'bomb',
+            gameState: 'GAME',
+            generalWord: topic.general,
+            roundDuration: 30000
+          });
+        }
 
         console.log(`Game started in room ${roomCode}`);
+      }
+
+      // SUBMIT BOMB WORD ANSWER (BOMB GAME)
+      else if (action === 'submitBombAnswer') {
+        const room = rooms.get(roomCode);
+        if (!room || room.gameState !== 'GAME') return;
+
+        const roundData = room.roundData;
+        if (roundData.gameType !== 'bomb') return;
+
+        const answer = data.answer.trim();
+        if (!answer) return;
+
+        // Prevent duplicate submissions
+        if (roundData.submitted.has(playerId)) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'You already submitted an answer'
+          }));
+          return;
+        }
+
+        // Check if round time has expired
+        const elapsedTime = Date.now() - roundData.roundStartTime;
+        if (elapsedTime > roundData.roundDuration) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Round ended. No more submissions allowed.'
+          }));
+          return;
+        }
+
+        roundData.submitted.add(playerId);
+        roundData.submissions.set(playerId, answer);
+
+        // Send confirmation to player
+        ws.send(JSON.stringify({
+          type: 'answerSubmitted',
+          message: 'Your answer has been submitted'
+        }));
+
+        // Check if all players have submitted
+        if (roundData.submitted.size === room.players.size) {
+          endBombRound(roomCode);
+        }
+      }
+
+      // END BOMB ROUND (HOST ONLY)
+      else if (action === 'endBombRound') {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+
+        // SERVER-SIDE HOST VERIFICATION
+        if (room.hostId !== playerId) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Only host can end rounds'
+          }));
+          return;
+        }
+
+        endBombRound(roomCode);
       }
     } catch (error) {
       console.error('WebSocket message error:', error);
@@ -261,6 +379,65 @@ wss.on('connection', (ws) => {
     console.error('WebSocket error:', error);
   });
 });
+
+// END BOMB ROUND LOGIC
+function endBombRound(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  const roundData = room.roundData;
+  if (roundData.gameType !== 'bomb') return;
+
+  const bombWord = roundData.bombWord;
+  const results = {
+    generalWord: roundData.generalWord,
+    bombWord: bombWord,
+    playerResults: []
+  };
+
+  // Determine who hit the bomb and who survived
+  room.players.forEach((player) => {
+    const answer = roundData.submissions.get(player.id) || '';
+    const hitBomb = answer.toLowerCase() === bombWord.toLowerCase();
+
+    if (hitBomb) {
+      // Bomb word hit - 0 points
+      results.playerResults.push({
+        playerId: player.id,
+        playerName: player.name,
+        answer: answer,
+        hitBomb: true,
+        pointsGained: 0
+      });
+    } else {
+      // Survived - 1 point
+      player.score += 1;
+      results.playerResults.push({
+        playerId: player.id,
+        playerName: player.name,
+        answer: answer,
+        hitBomb: false,
+        pointsGained: 1
+      });
+    }
+  });
+
+  room.gameState = 'RESULTS';
+  results.scores = Array.from(room.players.values()).map(p => ({
+    playerId: p.id,
+    playerName: p.name,
+    totalScore: p.score
+  }));
+
+  // Send results to all players
+  broadcastToRoom(roomCode, {
+    type: 'roundResults',
+    ...results,
+    gameType: 'bomb'
+  });
+
+  console.log(`Round ended in room ${roomCode}`);
+}
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Legacy Party server running on port ${PORT}`);

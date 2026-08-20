@@ -7,6 +7,10 @@ class LegacyParty {
     this.isHost = false;
     this.currentRoom = null;
     this.selectedGame = null;
+    this.currentGameType = null;
+    this.roundData = null;
+    this.roundEndTimer = null;
+    this.submittedAnswer = false;
 
     this.init();
   }
@@ -74,7 +78,19 @@ class LegacyParty {
     }
 
     if (type === 'gameStarted') {
-      this.showGamePage(message.game);
+      this.currentGameType = message.gameType;
+      this.roundData = message;
+      this.showGamePage(message);
+    }
+
+    if (type === 'answerSubmitted') {
+      this.submittedAnswer = true;
+      this.showError(message.message);
+      this.disableAnswerSubmission();
+    }
+
+    if (type === 'roundResults') {
+      this.showRoundResults(message);
     }
 
     if (type === 'error') {
@@ -118,7 +134,7 @@ class LegacyParty {
   createRoom() {
     const playerName = document.getElementById('playerNameCreate').value.trim();
     if (!playerName) {
-      this.showError('��لرجاء إدخال اسمك');
+      this.showError('الرجاء إدخال اسمك');
       return;
     }
 
@@ -176,12 +192,12 @@ class LegacyParty {
               <div class="section-title">اختر اللعبة</div>
               <div class="game-options">
                 <button class="game-option ${this.selectedGame === 'bomb' ? 'selected' : ''}" onclick="game.selectGame('bomb')">🧨 الكلمة المفخخة</button>
-                <button class="game-option ${this.selectedGame === 'thief' ? 'selected' : ''}" onclick="game.selectGame('thief')">🕵️ مين سرقها؟</button>
+                <button class="game-option ${this.selectedGame === 'thief' ? 'selected' : ''}" onclick="game.selectGame('thief')">🕵️ من سرقها؟</button>
                 <button class="game-option ${this.selectedGame === 'random' ? 'selected' : ''}" onclick="game.selectGame('random')">🎲 عشوائي</button>
               </div>
             </div>
             <button class="btn-primary" onclick="game.startGame()" ${!this.selectedGame ? 'disabled' : ''}>ابدأ اللعبة</button>
-          ` : ''}
+          ` : '<p style="color: var(--text-muted); text-align: center; margin-top: 20px;">في انتظار اختيار المضيف للعبة...</p>'}
         </div>
       </div>
     `;
@@ -239,13 +255,138 @@ class LegacyParty {
     }));
   }
 
-  showGamePage(game) {
+  showGamePage(message) {
+    if (message.gameType === 'bomb') {
+      this.showBombGamePage(message);
+    }
+  }
+
+  showBombGamePage(message) {
+    const roundDuration = message.roundDuration / 1000;
+    let timeRemaining = roundDuration;
+
     document.getElementById('app').innerHTML = `
-      <div style="padding: 20px; text-align: center;">
-        <h2>لعبة: ${game === 'bomb' ? '🧨 الكلمة المفخخة' : game === 'thief' ? '🕵️ مين سرقها؟' : '🎲 عشوائي'}</h2>
-        <p>قريبا...</p>
+      <div class="game-page">
+        <div class="game-header">
+          <div class="game-title">🧨 الكلمة المفخخة</div>
+          <div class="timer" id="timer">${Math.ceil(timeRemaining)}s</div>
+        </div>
+
+        <div class="game-content">
+          <div class="general-word-container">
+            <div class="general-word-label">الكلمة العامة</div>
+            <div class="general-word">${message.generalWord}</div>
+          </div>
+
+          <div class="submit-section">
+            <div class="form-group">
+              <label for="answerInput">كلمتك</label>
+              <input type="text" id="answerInput" placeholder="أدخل كلمة" ${this.submittedAnswer ? 'disabled' : ''}>
+            </div>
+            <button class="btn-primary" onclick="game.submitBombAnswer()" ${this.submittedAnswer ? 'disabled' : ''}>إرسال</button>
+          </div>
+
+          <div class="waiting-text" id="waitingText" style="display: none;">في انتظار اللاعبين الآخرين...</div>
+        </div>
       </div>
     `;
+
+    // Timer countdown
+    const timerInterval = setInterval(() => {
+      timeRemaining--;
+      const timerEl = document.getElementById('timer');
+      if (timerEl) {
+        timerEl.textContent = `${Math.ceil(timeRemaining)}s`;
+      }
+      
+      if (timeRemaining <= 0) {
+        clearInterval(timerInterval);
+        this.disableAnswerSubmission();
+      }
+    }, 1000);
+
+    this.roundEndTimer = setTimeout(() => {
+      this.disableAnswerSubmission();
+    }, message.roundDuration);
+  }
+
+  submitBombAnswer() {
+    const answerInput = document.getElementById('answerInput');
+    const answer = answerInput.value.trim();
+
+    if (!answer) {
+      this.showError('الرجاء إدخال كلمة');
+      return;
+    }
+
+    this.ws.send(JSON.stringify({
+      action: 'submitBombAnswer',
+      answer: answer
+    }));
+  }
+
+  disableAnswerSubmission() {
+    const answerInput = document.getElementById('answerInput');
+    const submitBtn = document.querySelector('button[onclick*="submitBombAnswer"]');
+    const waitingText = document.getElementById('waitingText');
+
+    if (answerInput) answerInput.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+    if (waitingText) waitingText.style.display = 'block';
+  }
+
+  showRoundResults(message) {
+    const resultsHtml = message.playerResults.map(result => `
+      <div class="result-item ${result.hitBomb ? 'bomb' : 'survived'}">
+        <div class="result-player-name">${result.playerName}</div>
+        <div class="result-answer">${result.answer}</div>
+        <div class="result-status">${result.hitBomb ? '💥 اصابت الكلمة' : '✅ نجت'}</div>
+        <div class="result-points">+${result.pointsGained}</div>
+      </div>
+    `).join('');
+
+    const scoresHtml = message.scores.map(score => `
+      <div class="score-item">
+        <span class="score-name">${score.playerName}</span>
+        <span class="score-value">${score.totalScore}</span>
+      </div>
+    `).join('');
+
+    document.getElementById('app').innerHTML = `
+      <div class="results-page">
+        <div class="results-header">
+          <h2>النتائج</h2>
+        </div>
+
+        <div class="results-content">
+          <div class="reveal-section">
+            <div class="reveal-label">الكلمة المفخخة:</div>
+            <div class="reveal-word">${message.bombWord}</div>
+          </div>
+
+          <div class="results-list">
+            <div class="section-title">تفاصيل اللعبة</div>
+            ${resultsHtml}
+          </div>
+
+          <div class="scores-section">
+            <div class="section-title">الرتب</div>
+            ${scoresHtml}
+          </div>
+
+          ${this.isHost ? `
+            <button class="btn-primary" onclick="game.startNewRound()">جولة جديدة 🔄</button>
+          ` : '<p style="color: var(--text-muted); text-align: center; margin-top: 20px;">في انتظار اختيار المضيف للجولة القادمة...</p>'}
+        </div>
+      </div>
+    `;
+  }
+
+  startNewRound() {
+    if (!this.isHost) return;
+    this.submittedAnswer = false;
+    this.selectedGame = null;
+    this.showRoomPage();
   }
 
   showError(message) {
