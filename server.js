@@ -13,8 +13,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-// Load bomb topics
+// Load game data
 const bombTopics = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/bomb-topics.json'), 'utf8')).topics;
+const mysteries = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/mysteries.json'), 'utf8'));
 
 // Data structures
 const rooms = new Map(); // roomCode -> { hostId, players: Map, gameState, selectedGame, createdAt, usedTopics, currentRound }
@@ -86,6 +87,16 @@ function getRandomTopic(usedTopics = []) {
 // Get random bomb for a topic
 function getRandomBomb(topic) {
   return topic.bombs[Math.floor(Math.random() * topic.bombs.length)];
+}
+
+// Get random mystery
+function getRandomMystery() {
+  return mysteries[Math.floor(Math.random() * mysteries.length)];
+}
+
+// Get random clue from mystery
+function getRandomClueFromMystery(mystery) {
+  return mystery.clues[Math.floor(Math.random() * mystery.clues.length)];
 }
 
 // Handle WebSocket connections
@@ -271,6 +282,9 @@ wss.on('connection', (ws) => {
             generalWord: topic.general,
             roundDuration: 30000
           });
+        } else if (room.selectedGame === 'thief') {
+          // Start thief game
+          startThiefGame(roomCode);
         }
 
         console.log(`Game started in room ${roomCode}`);
@@ -437,6 +451,57 @@ function endBombRound(roomCode) {
   });
 
   console.log(`Round ended in room ${roomCode}`);
+}
+
+// START THIEF GAME LOGIC
+function startThiefGame(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+
+  // Get random mystery
+  const mystery = getRandomMystery();
+  
+  // Randomly select a thief from players
+  const playersArray = Array.from(room.players.values());
+  const thiefPlayer = playersArray[Math.floor(Math.random() * playersArray.length)];
+  const thiefId = thiefPlayer.id;
+
+  // Store round data
+  room.roundData = {
+    gameType: 'thief',
+    mystery: mystery,
+    thiefId: thiefId,
+    cluesSent: new Set(),
+    discussionStartTime: Date.now(),
+    discussionDuration: 45000 // 45 seconds
+  };
+
+  // Send mystery to all players
+  broadcastToRoom(roomCode, {
+    type: 'thiefGameStarted',
+    event: mystery.event,
+    discussionDuration: 45000
+  });
+
+  // Send private message to thief
+  sendToPlayer(thiefId, {
+    type: 'thiefPrivateMessage',
+    message: 'أنت السارق 🕵️'
+  });
+
+  // Send private clues to all non-thief players
+  playersArray.forEach((player) => {
+    if (player.id !== thiefId) {
+      const clue = getRandomClueFromMystery(mystery);
+      sendToPlayer(player.id, {
+        type: 'playerPrivateClue',
+        clue: clue
+      });
+      room.roundData.cluesSent.add(player.id);
+    }
+  });
+
+  console.log(`Thief game started in room ${roomCode}, thief is ${thiefPlayer.name}`);
 }
 
 server.listen(PORT, '0.0.0.0', () => {
