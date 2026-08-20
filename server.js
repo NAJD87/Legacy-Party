@@ -56,7 +56,7 @@ function sendToPlayer(playerId, message) {
   }
 }
 
-// Get room info
+// Get room info (with scores)
 function getRoomInfo(roomCode) {
   const room = rooms.get(roomCode);
   if (!room) return null;
@@ -64,7 +64,8 @@ function getRoomInfo(roomCode) {
   const playersList = Array.from(room.players.values()).map(p => ({
     id: p.id,
     name: p.name,
-    isHost: p.id === room.hostId
+    isHost: p.id === room.hostId,
+    score: p.score
   }));
   
   return {
@@ -73,7 +74,8 @@ function getRoomInfo(roomCode) {
     players: playersList,
     playerCount: playersList.length,
     gameState: room.gameState,
-    selectedGame: room.selectedGame
+    selectedGame: room.selectedGame,
+    currentRound: room.currentRound || 0
   };
 }
 
@@ -130,7 +132,7 @@ wss.on('connection', (ws) => {
           selectedGame: null,
           createdAt: Date.now(),
           usedTopics: [],
-          currentRound: null,
+          currentRound: 0,
           roundData: {}
         };
 
@@ -255,10 +257,18 @@ wss.on('connection', (ws) => {
           return;
         }
 
+        // Increment round
+        room.currentRound = (room.currentRound || 0) + 1;
         room.gameState = 'GAME';
-        room.currentRound = 1;
 
-        if (room.selectedGame === 'bomb' || room.selectedGame === 'random') {
+        // Server-side: resolve random game selection
+        let gameToPlay = room.selectedGame;
+        if (gameToPlay === 'random') {
+          // Randomly choose between bomb and thief (50/50)
+          gameToPlay = Math.random() < 0.5 ? 'bomb' : 'thief';
+        }
+
+        if (gameToPlay === 'bomb') {
           // Start bomb word game
           const topic = getRandomTopic(room.usedTopics);
           room.usedTopics.push(topic.id);
@@ -280,14 +290,15 @@ wss.on('connection', (ws) => {
             gameType: 'bomb',
             gameState: 'GAME',
             generalWord: topic.general,
-            roundDuration: 30000
+            roundDuration: 30000,
+            currentRound: room.currentRound
           });
-        } else if (room.selectedGame === 'thief') {
+        } else if (gameToPlay === 'thief') {
           // Start thief game
-          startThiefGame(roomCode);
+          startThiefGame(roomCode, room.currentRound);
         }
 
-        console.log(`Game started in room ${roomCode}`);
+        console.log(`Game started in room ${roomCode}, round ${room.currentRound}, game: ${gameToPlay}`);
       }
 
       // SUBMIT BOMB WORD ANSWER (BOMB GAME)
@@ -412,7 +423,61 @@ wss.on('connection', (ws) => {
           return;
         }
 
-        startThiefGame(roomCode);
+        startThiefGame(roomCode, room.currentRound);
+      }
+
+      // START NEW ROUND (HOST ONLY) - returns to lobby
+      else if (action === 'startNewRound') {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+
+        // SERVER-SIDE HOST VERIFICATION
+        if (room.hostId !== playerId) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Only host can start new rounds'
+          }));
+          return;
+        }
+
+        // Return to lobby
+        room.gameState = 'LOBBY';
+        room.selectedGame = null;
+        room.roundData = {};
+
+        broadcastToRoom(roomCode, {
+          type: 'returnToLobby',
+          ...getRoomInfo(roomCode)
+        });
+
+        console.log(`Room ${roomCode} returned to lobby`);
+      }
+
+      // RETURN TO ROOM/LOBBY (HOST ONLY)
+      else if (action === 'returnToLobby') {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+
+        // SERVER-SIDE HOST VERIFICATION
+        if (room.hostId !== playerId) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Only host can return to lobby'
+          }));
+          return;
+        }
+
+        // Return to lobby
+        room.gameState = 'LOBBY';
+        room.selectedGame = null;
+        room.roundData = {};
+
+        broadcastToRoom(roomCode, {
+          type: 'returnToLobby',
+          ...getRoomInfo(roomCode)
+        });
+
+        console.log(`Room ${roomCode} returned to lobby`);
       }
     } catch (error) {
       console.error('WebSocket message error:', error);
@@ -505,6 +570,7 @@ function endBombRound(roomCode) {
     playerName: p.name,
     totalScore: p.score
   }));
+  results.currentRound = room.currentRound;
 
   // Send results to all players
   broadcastToRoom(roomCode, {
@@ -513,11 +579,11 @@ function endBombRound(roomCode) {
     gameType: 'bomb'
   });
 
-  console.log(`Round ended in room ${roomCode}`);
+  console.log(`Round ${room.currentRound} ended in room ${roomCode}`);
 }
 
 // START THIEF GAME LOGIC
-function startThiefGame(roomCode) {
+function startThiefGame(roomCode, roundNumber) {
   const room = rooms.get(roomCode);
   if (!room) return;
 
@@ -548,7 +614,8 @@ function startThiefGame(roomCode) {
   broadcastToRoom(roomCode, {
     type: 'thiefGameStarted',
     event: mystery.event,
-    discussionDuration: 45000
+    discussionDuration: 45000,
+    currentRound: roundNumber
   });
 
   // Send private message to thief
@@ -574,7 +641,7 @@ function startThiefGame(roomCode) {
     startThiefVoting(roomCode);
   }, 45000);
 
-  console.log(`Thief game started in room ${roomCode}, thief is ${thiefPlayer.name}`);
+  console.log(`Thief game started in room ${roomCode}, round ${roundNumber}, thief is ${thiefPlayer.name}`);
 }
 
 // START THIEF VOTING PHASE
@@ -675,7 +742,8 @@ function endThiefVoting(roomCode) {
       playerId: p.id,
       playerName: p.name,
       totalScore: p.score
-    }))
+    })),
+    currentRound: room.currentRound
   };
 
   // Send results to all players
@@ -684,7 +752,7 @@ function endThiefVoting(roomCode) {
     ...results
   });
 
-  console.log(`Thief voting ended in room ${roomCode}, thief was ${thiefName}, accused was ${accusedName}`);
+  console.log(`Thief voting ended in room ${roomCode}, round ${room.currentRound}, thief was ${thiefName}, accused was ${accusedName}`);
 }
 
 server.listen(PORT, '0.0.0.0', () => {
