@@ -92,13 +92,68 @@ function getRandomBomb(topic) {
 }
 
 // Get random mystery
-function getRandomMystery() {
-  return mysteries[Math.floor(Math.random() * mysteries.length)];
+function getRandomMystery(usedMysteries = []) {
+  const available = mysteries.filter(m => !usedMysteries.includes(m.id));
+  if (available.length === 0) return mysteries[Math.floor(Math.random() * mysteries.length)];
+  return available[Math.floor(Math.random() * available.length)];
 }
 
 // Get random clue from mystery
 function getRandomClueFromMystery(mystery) {
   return mystery.clues[Math.floor(Math.random() * mystery.clues.length)];
+}
+
+// Start a new round while preserving the room's selected game and scores.
+function startRoomRound(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room || room.players.size === 0) return;
+
+  room.currentRound = (room.currentRound || 0) + 1;
+  room.gameState = 'GAME';
+  room.roundData = {};
+
+  let gameToPlay = room.selectedGame;
+  if (gameToPlay === 'random') {
+    gameToPlay = Math.random() < 0.5 ? 'bomb' : 'thief';
+  }
+
+  if (gameToPlay === 'bomb') {
+    const topic = getRandomTopic(room.usedTopics);
+    room.usedTopics.push(topic.id);
+    room.roundData = {
+      gameType: 'bomb',
+      topic: topic,
+      generalWord: topic.general,
+      bombWord: getRandomBomb(topic),
+      submissions: new Map(),
+      submitted: new Set(),
+      roundStartTime: Date.now(),
+      roundDuration: 30000,
+      ended: false
+    };
+
+    broadcastToRoom(roomCode, {
+      type: 'gameStarted',
+      gameType: 'bomb',
+      gameState: 'GAME',
+      generalWord: topic.general,
+      roundDuration: 30000,
+      currentRound: room.currentRound
+    });
+
+    // Automatically finish the round when the timer expires.
+    const roundRef = room.roundData;
+    setTimeout(() => {
+      const currentRoom = rooms.get(roomCode);
+      if (currentRoom && currentRoom.roundData === roundRef && currentRoom.gameState === 'GAME') {
+        endBombRound(roomCode);
+      }
+    }, 30000);
+  } else {
+    startThiefGame(roomCode, room.currentRound);
+  }
+
+  console.log(`Round ${room.currentRound} started in room ${roomCode}, game: ${gameToPlay}`);
 }
 
 // Handle WebSocket connections
@@ -132,6 +187,7 @@ wss.on('connection', (ws) => {
           selectedGame: null,
           createdAt: Date.now(),
           usedTopics: [],
+          usedMysteries: [],
           currentRound: 0,
           roundData: {}
         };
@@ -150,7 +206,8 @@ wss.on('connection', (ws) => {
           type: 'roomCreated',
           roomCode,
           playerId,
-          playerName
+          playerName,
+          ...getRoomInfo(roomCode)
         }));
 
         console.log(`Room ${roomCode} created by ${playerName}`);
@@ -240,65 +297,17 @@ wss.on('connection', (ws) => {
         const room = rooms.get(roomCode);
         if (!room) return;
 
-        // SERVER-SIDE HOST VERIFICATION
         if (room.hostId !== playerId) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Only host can start games'
-          }));
+          ws.send(JSON.stringify({ type: 'error', message: 'Only host can start games' }));
           return;
         }
 
         if (!room.selectedGame) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'No game selected'
-          }));
+          ws.send(JSON.stringify({ type: 'error', message: 'No game selected' }));
           return;
         }
 
-        // Increment round
-        room.currentRound = (room.currentRound || 0) + 1;
-        room.gameState = 'GAME';
-
-        // Server-side: resolve random game selection
-        let gameToPlay = room.selectedGame;
-        if (gameToPlay === 'random') {
-          // Randomly choose between bomb and thief (50/50)
-          gameToPlay = Math.random() < 0.5 ? 'bomb' : 'thief';
-        }
-
-        if (gameToPlay === 'bomb') {
-          // Start bomb word game
-          const topic = getRandomTopic(room.usedTopics);
-          room.usedTopics.push(topic.id);
-
-          room.roundData = {
-            gameType: 'bomb',
-            topic: topic,
-            generalWord: topic.general,
-            bombWord: getRandomBomb(topic),
-            submissions: new Map(),
-            submitted: new Set(),
-            roundStartTime: Date.now(),
-            roundDuration: 30000 // 30 seconds
-          };
-
-          // Send general word to all players (NOT the bomb word)
-          broadcastToRoom(roomCode, {
-            type: 'gameStarted',
-            gameType: 'bomb',
-            gameState: 'GAME',
-            generalWord: topic.general,
-            roundDuration: 30000,
-            currentRound: room.currentRound
-          });
-        } else if (gameToPlay === 'thief') {
-          // Start thief game
-          startThiefGame(roomCode, room.currentRound);
-        }
-
-        console.log(`Game started in room ${roomCode}, round ${room.currentRound}, game: ${gameToPlay}`);
+        startRoomRound(roomCode);
       }
 
       // SUBMIT BOMB WORD ANSWER (BOMB GAME)
@@ -307,7 +316,7 @@ wss.on('connection', (ws) => {
         if (!room || room.gameState !== 'GAME') return;
 
         const roundData = room.roundData;
-        if (roundData.gameType !== 'bomb') return;
+        if (roundData.gameType !== 'bomb' || roundData.ended) return;
 
         const answer = data.answer.trim();
         if (!answer) return;
@@ -369,10 +378,14 @@ wss.on('connection', (ws) => {
         if (!room || room.gameState !== 'VOTING') return;
 
         const roundData = room.roundData;
-        if (roundData.gameType !== 'thief') return;
+        if (roundData.gameType !== 'thief' || roundData.ended) return;
 
         const accusedPlayerId = data.accusedPlayerId;
-        if (!accusedPlayerId) return;
+        if (!accusedPlayerId || !room.players.has(accusedPlayerId)) return;
+        if (accusedPlayerId === playerId) {
+          ws.send(JSON.stringify({ type: 'error', message: 'لا يمكنك التصويت لنفسك' }));
+          return;
+        }
 
         // Prevent duplicate votes
         if (roundData.votes && roundData.votes.has(playerId)) {
@@ -409,48 +422,22 @@ wss.on('connection', (ws) => {
         }
       }
 
-      // START NEW THIEF ROUND (HOST ONLY)
-      else if (action === 'startNewThiefRound') {
-        const room = rooms.get(roomCode);
-        if (!room) return;
-
-        // SERVER-SIDE HOST VERIFICATION
-        if (room.hostId !== playerId) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Only host can start new rounds'
-          }));
-          return;
-        }
-
-        startThiefGame(roomCode, room.currentRound);
-      }
-
-      // START NEW ROUND (HOST ONLY) - returns to lobby
+      // START NEW ROUND (HOST ONLY)
       else if (action === 'startNewRound') {
         const room = rooms.get(roomCode);
         if (!room) return;
 
-        // SERVER-SIDE HOST VERIFICATION
         if (room.hostId !== playerId) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Only host can start new rounds'
-          }));
+          ws.send(JSON.stringify({ type: 'error', message: 'Only host can start new rounds' }));
           return;
         }
 
-        // Return to lobby
-        room.gameState = 'LOBBY';
-        room.selectedGame = null;
-        room.roundData = {};
+        if (!room.selectedGame) {
+          ws.send(JSON.stringify({ type: 'error', message: 'No game selected' }));
+          return;
+        }
 
-        broadcastToRoom(roomCode, {
-          type: 'returnToLobby',
-          ...getRoomInfo(roomCode)
-        });
-
-        console.log(`Room ${roomCode} returned to lobby`);
+        startRoomRound(roomCode);
       }
 
       // RETURN TO ROOM/LOBBY (HOST ONLY)
@@ -514,6 +501,13 @@ wss.on('connection', (ws) => {
       ...getRoomInfo(roomCode)
     });
 
+    // Finish an active vote early when every remaining player has voted.
+    if (room.gameState === 'VOTING' && room.roundData && room.roundData.votes) {
+      if (room.roundData.votes.size >= room.players.size) {
+        endThiefVoting(roomCode);
+      }
+    }
+
     console.log(`${playerName} left room ${roomCode}`);
   });
 
@@ -528,7 +522,8 @@ function endBombRound(roomCode) {
   if (!room) return;
 
   const roundData = room.roundData;
-  if (roundData.gameType !== 'bomb') return;
+  if (roundData.gameType !== 'bomb' || roundData.ended) return;
+  roundData.ended = true;
 
   const bombWord = roundData.bombWord;
   const results = {
@@ -588,7 +583,9 @@ function startThiefGame(roomCode, roundNumber) {
   if (!room) return;
 
   // Get random mystery
-  const mystery = getRandomMystery();
+  const mystery = getRandomMystery(room.usedMysteries || []);
+  if (!room.usedMysteries) room.usedMysteries = [];
+  room.usedMysteries.push(mystery.id);
   
   // Randomly select a thief from players
   const playersArray = Array.from(room.players.values());
@@ -605,7 +602,8 @@ function startThiefGame(roomCode, roundNumber) {
     discussionDuration: 45000, // 45 seconds
     votes: new Map(),
     votingStartTime: null,
-    votingDuration: 30000 // 30 seconds
+    votingDuration: 30000, // 30 seconds
+    ended: false
   };
 
   room.gameState = 'DISCUSSION';
@@ -647,7 +645,7 @@ function startThiefGame(roomCode, roundNumber) {
 // START THIEF VOTING PHASE
 function startThiefVoting(roomCode) {
   const room = rooms.get(roomCode);
-  if (!room || room.roundData.gameType !== 'thief') return;
+  if (!room || room.roundData.gameType !== 'thief' || room.roundData.ended) return;
 
   room.gameState = 'VOTING';
   room.roundData.votingStartTime = Date.now();
@@ -677,8 +675,18 @@ function endThiefVoting(roomCode) {
   if (!room || room.roundData.gameType !== 'thief') return;
 
   const roundData = room.roundData;
+  if (roundData.ended) return;
+  roundData.ended = true;
   const thiefId = roundData.thiefId;
-  const thiefName = room.players.get(thiefId).name;
+  const thiefPlayer = room.players.get(thiefId);
+  if (!thiefPlayer) {
+    room.gameState = 'LOBBY';
+    room.selectedGame = null;
+    room.roundData = {};
+    broadcastToRoom(roomCode, { type: 'returnToLobby', ...getRoomInfo(roomCode) });
+    return;
+  }
+  const thiefName = thiefPlayer.name;
   const mystery = roundData.mystery;
 
   // Count votes for each player
@@ -734,9 +742,9 @@ function endThiefVoting(roomCode) {
     correctVoters: correctVoters,
     votes: Array.from(roundData.votes.entries()).map(([voterId, accusedId]) => ({
       voterId,
-      voterName: room.players.get(voterId).name,
+      voterName: room.players.get(voterId)?.name || 'لاعب غادر',
       accusedId,
-      accusedName: room.players.get(accusedId).name
+      accusedName: room.players.get(accusedId)?.name || 'لاعب غادر'
     })),
     scores: Array.from(room.players.values()).map(p => ({
       playerId: p.id,
