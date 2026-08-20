@@ -1,0 +1,336 @@
+:root {
+  --primary-dark: #0a0e27;
+  --secondary-dark: #1a2847;
+  --accent-teal: #16a085;
+  --accent-blue: #2c3e50;
+  --text-light: #ecf0f1;
+  --text-muted: #95a5a6;
+  --error: #e74c3c;
+  --success: #27ae60;
+  --warning: #f39c12;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--secondary-dark) 100%);
+  color: var(--text-light);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* HOMEPAGE */
+.homepage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+  text-align: center;
+}
+
+.logo-container {
+  margin-bottom: 30px;
+  animation: fadeInDown 0.8s ease-out;
+}
+
+.logo-container img {
+  max-width: 120px;
+  height: auto;
+  aspect-ratio: auto;
+}
+
+.logo-fallback {
+  font-size: 48px;
+  font-weight: bold;
+  color: var(--accent-teal);
+}
+
+.app-title {
+  font-size: 48px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, var(--accent-teal), var(--accent-blue));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: fadeInDown 0.8s ease-out 0.1s backwards;
+}
+
+.app-subtitle {
+  font-size: 18px;
+  color: var(--text-muted);
+  margin-bottom: 40px;
+  animation: fadeInUp 0.8s ease-out 0.2s backwards;
+}
+
+.action-section {
+  width: 100%;
+  max-width: 400px;
+  margin-bottom: 30px;
+  animation: fadeInUp 0.8s ease-out 0.3s backwards;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+input[type="text"] {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid var(--secondary-dark);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-light);
+  font-size: 16px;
+  transition: all 0.3s ease;
+  font-family: inherit;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent-teal);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 12px rgba(22, 160, 133, 0.3);
+}
+
+input[type="text"]::placeholder {
+  color: var(--text-muted);
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: inherit;
+}
+
+button.btn-primary {
+  flex: 1;
+  background: linear-gradient(135deg, var(--accent-teal), #0fa88a);
+  color: white;
+  box-shadow: 0 4px 15px rgba(22, 160, 133, 0.3);
+}
+
+button.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(22, 160, 133, 0.4);
+}
+
+button.btn-primary:active {
+  transform: translateY(0);
+}
+
+button.btn-secondary {
+  flex: 1;
+  background: var(--secondary-dark);
+  color: var(--text-light);
+  border: 2px solid var(--accent-teal);
+}
+
+button.btn-secondary:hover {
+  background: rgba(22, 160, 133, 0.1);
+  transform: translateY(-2px);
+}
+
+/* ROOM PAGE */
+.room-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--secondary-dark) 100%);
+}
+
+.room-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(22, 160, 133, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.room-logo-small img {
+  max-width: 40px;
+  height: auto;
+}
+
+.room-code-display {
+  text-align: center;
+  flex: 1;
+}
+
+.room-code-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.room-code {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent-teal);
+  font-family: 'Courier New', monospace;
+  letter-spacing: 4px;
+}
+
+.room-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.players-section {
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent-teal);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-item {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(22, 160, 133, 0.2);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.3s ease;
+}
+
+.player-item:hover {
+  background: rgba(22, 160, 133, 0.1);
+  border-color: var(--accent-teal);
+}
+
+.player-name {
+  font-weight: 500;
+}
+
+.player-badge {
+  font-size: 14px;
+  color: var(--accent-teal);
+}
+
+/* GAME SELECTION */
+.game-selection {
+  margin-bottom: 24px;
+}
+
+.game-options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.game-option {
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+  font-weight: 500;
+}
+
+.game-option:hover {
+  background: rgba(22, 160, 133, 0.1);
+  border-color: var(--accent-teal);
+}
+
+.game-option.selected {
+  background: rgba(22, 160, 133, 0.2);
+  border-color: var(--accent-teal);
+  color: var(--accent-teal);
+}
+
+.game-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ANIMATIONS */
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* RESPONSIVE */
+@media (max-width: 640px) {
+  .app-title {
+    font-size: 36px;
+  }
+
+  .app-subtitle {
+    font-size: 16px;
+  }
+
+  .action-section {
+    max-width: 100%;
+  }
+
+  button {
+    padding: 12px 20px;
+    font-size: 14px;
+  }
+}
