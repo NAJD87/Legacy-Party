@@ -351,6 +351,69 @@ wss.on('connection', (ws) => {
 
         endBombRound(roomCode);
       }
+
+      // SUBMIT THIEF VOTE
+      else if (action === 'submitThiefVote') {
+        const room = rooms.get(roomCode);
+        if (!room || room.gameState !== 'VOTING') return;
+
+        const roundData = room.roundData;
+        if (roundData.gameType !== 'thief') return;
+
+        const accusedPlayerId = data.accusedPlayerId;
+        if (!accusedPlayerId) return;
+
+        // Prevent duplicate votes
+        if (roundData.votes && roundData.votes.has(playerId)) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'You already voted'
+          }));
+          return;
+        }
+
+        // Check if voting time has expired
+        const elapsedTime = Date.now() - roundData.votingStartTime;
+        if (elapsedTime > roundData.votingDuration) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Voting ended. No more votes allowed.'
+          }));
+          return;
+        }
+
+        // Record vote
+        if (!roundData.votes) roundData.votes = new Map();
+        roundData.votes.set(playerId, accusedPlayerId);
+
+        // Send confirmation to player
+        ws.send(JSON.stringify({
+          type: 'voteSubmitted',
+          message: 'Your vote has been submitted'
+        }));
+
+        // Check if all players have voted
+        if (roundData.votes.size === room.players.size) {
+          endThiefVoting(roomCode);
+        }
+      }
+
+      // START NEW THIEF ROUND (HOST ONLY)
+      else if (action === 'startNewThiefRound') {
+        const room = rooms.get(roomCode);
+        if (!room) return;
+
+        // SERVER-SIDE HOST VERIFICATION
+        if (room.hostId !== playerId) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Only host can start new rounds'
+          }));
+          return;
+        }
+
+        startThiefGame(roomCode);
+      }
     } catch (error) {
       console.error('WebSocket message error:', error);
     }
@@ -473,10 +536,15 @@ function startThiefGame(roomCode) {
     thiefId: thiefId,
     cluesSent: new Set(),
     discussionStartTime: Date.now(),
-    discussionDuration: 45000 // 45 seconds
+    discussionDuration: 45000, // 45 seconds
+    votes: new Map(),
+    votingStartTime: null,
+    votingDuration: 30000 // 30 seconds
   };
 
-  // Send mystery to all players
+  room.gameState = 'DISCUSSION';
+
+  // Send mystery and discussion phase to all players
   broadcastToRoom(roomCode, {
     type: 'thiefGameStarted',
     event: mystery.event,
@@ -501,7 +569,122 @@ function startThiefGame(roomCode) {
     }
   });
 
+  // Schedule voting phase start after discussion time
+  setTimeout(() => {
+    startThiefVoting(roomCode);
+  }, 45000);
+
   console.log(`Thief game started in room ${roomCode}, thief is ${thiefPlayer.name}`);
+}
+
+// START THIEF VOTING PHASE
+function startThiefVoting(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room || room.roundData.gameType !== 'thief') return;
+
+  room.gameState = 'VOTING';
+  room.roundData.votingStartTime = Date.now();
+  room.roundData.votes = new Map();
+
+  const playersList = Array.from(room.players.values()).map(p => ({
+    id: p.id,
+    name: p.name
+  }));
+
+  // Notify all players to start voting
+  broadcastToRoom(roomCode, {
+    type: 'thiefVotingStarted',
+    players: playersList,
+    votingDuration: 30000
+  });
+
+  // Schedule result reveal after voting time
+  setTimeout(() => {
+    endThiefVoting(roomCode);
+  }, 30000);
+}
+
+// END THIEF VOTING AND REVEAL RESULTS
+function endThiefVoting(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room || room.roundData.gameType !== 'thief') return;
+
+  const roundData = room.roundData;
+  const thiefId = roundData.thiefId;
+  const thiefName = room.players.get(thiefId).name;
+  const mystery = roundData.mystery;
+
+  // Count votes for each player
+  const voteCounts = new Map();
+  room.players.forEach((player) => {
+    voteCounts.set(player.id, 0);
+  });
+
+  roundData.votes.forEach((accusedId) => {
+    voteCounts.set(accusedId, (voteCounts.get(accusedId) || 0) + 1);
+  });
+
+  // Find the player with highest votes (server-side determination)
+  let accusedId = null;
+  let maxVotes = 0;
+
+  voteCounts.forEach((votes, playerId) => {
+    if (votes > maxVotes) {
+      maxVotes = votes;
+      accusedId = playerId;
+    }
+  });
+
+  // If no votes, no one accused
+  const accusedName = accusedId ? room.players.get(accusedId).name : 'No one';
+  const thiefCaught = accusedId === thiefId;
+
+  // Calculate points for correct voters and thief
+  const correctVoters = [];
+  if (thiefCaught) {
+    // Thief was caught - give points to those who voted for the thief
+    roundData.votes.forEach((accusedIdVote, voterId) => {
+      if (accusedIdVote === thiefId) {
+        room.players.get(voterId).score += 1;
+        correctVoters.push(voterId);
+      }
+    });
+  } else {
+    // Thief survived - give point to thief
+    room.players.get(thiefId).score += 1;
+    correctVoters.push(thiefId);
+  }
+
+  room.gameState = 'RESULTS';
+
+  const results = {
+    accusedPlayerId: accusedId,
+    accusedPlayerName: accusedName,
+    thiefId: thiefId,
+    thiefName: thiefName,
+    mystery: mystery,
+    thiefCaught: thiefCaught,
+    correctVoters: correctVoters,
+    votes: Array.from(roundData.votes.entries()).map(([voterId, accusedId]) => ({
+      voterId,
+      voterName: room.players.get(voterId).name,
+      accusedId,
+      accusedName: room.players.get(accusedId).name
+    })),
+    scores: Array.from(room.players.values()).map(p => ({
+      playerId: p.id,
+      playerName: p.name,
+      totalScore: p.score
+    }))
+  };
+
+  // Send results to all players
+  broadcastToRoom(roomCode, {
+    type: 'thiefRoundResults',
+    ...results
+  });
+
+  console.log(`Thief voting ended in room ${roomCode}, thief was ${thiefName}, accused was ${accusedName}`);
 }
 
 server.listen(PORT, '0.0.0.0', () => {
